@@ -77,9 +77,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 /* ── Pending strip ── */
 .pending-strip {
   background: #fff;
-  border-top: 1px solid #e0e7ef;
-  border-bottom: 1px solid #e0e7ef;
-  padding: 8px 12px 6px; display: none;
+  border-bottom: 2px solid #e0e7ef;
+  padding: 8px 12px 10px; display: none;
 }
 .pending-strip.show { display: block; }
 .pending-strip-title {
@@ -300,12 +299,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   padding: 10px 12px; font-size: .95rem; margin-bottom: 10px; outline: none;
 }
 .name-modal input:focus { border-color: #1a5f9e; }
-.scan-type-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.scan-type-row { display: flex; gap: 8px; margin-bottom: 6px; }
 .scan-type-btn {
-  flex: 1; padding: 9px; border: 2px solid #dde3ea;
-  border-radius: 8px; background: white; font-weight: 600; font-size: .82rem; cursor: pointer;
+  flex: 1; padding: 9px 6px; border: 2px solid #dde3ea;
+  border-radius: 8px; background: white; font-weight: 600; font-size: .78rem; cursor: pointer;
+  position: relative; transition: border-color .15s, background .15s;
 }
-.scan-type-btn.selected { border-color: #1a5f9e; background: #f0f6ff; color: #1a5f9e; }
+.scan-type-btn.selected {
+  border-color: #22a06b; background: #f0fff8; color: #22a06b;
+}
+.scan-type-btn.selected::after {
+  content: '✔';
+  position: absolute; top: 3px; right: 5px;
+  font-size: .65rem; color: #22a06b; font-weight: 900;
+}
+.scan-type-hint {
+  font-size: .68rem; margin-bottom: 12px; min-height: 14px;
+}
 .modal-btns { display: flex; gap: 8px; }
 .modal-ok {
   flex: 1; background: #1a5f9e; color: white; border: none;
@@ -362,13 +372,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <span class="sua-alert-text">SUA (Single Umbilical Artery) selected — document carefully</span>
   </div>
 
-  <!-- Pending strip -->
-  <div class="pending-strip" id="pending-strip">
-    <div class="pending-strip-title">Still pending</div>
-    <div id="pending-list"></div>
-  </div>
-
 </div><!-- end sticky-top -->
+
+<!-- Pending strip (scrolls with page) -->
+<div class="pending-strip" id="pending-strip">
+  <div class="pending-strip-title">Still pending</div>
+  <div id="pending-list"></div>
+</div>
 
 <!-- ══════════════ NT SCAN PANEL ══════════════ -->
 <div class="scan-panel active" id="panel-nt">
@@ -702,12 +712,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="name-modal">
     <h3 id="patient-modal-title">&#x1F464; New Patient</h3>
     <input type="text" id="new-patient-name" placeholder="Patient name (optional)" maxlength="30" />
-    <div style="font-size:.68rem;color:#999;margin-bottom:5px">Select one or more scan types:</div>
     <div class="scan-type-row">
       <button class="scan-type-btn" id="st-nt" onclick="toggleScanType('nt')">NT SCAN</button>
       <button class="scan-type-btn" id="st-target" onclick="toggleScanType('target')">TARGET SCAN</button>
       <button class="scan-type-btn" id="st-echo" onclick="toggleScanType('echo')">ECHO</button>
     </div>
+    <div class="scan-type-hint" id="scan-type-hint" style="color:#999">Tap to select scan type(s)</div>
     <div class="modal-btns">
       <button class="modal-ok" id="patient-modal-ok" onclick="confirmPatientModal()">Start Scan</button>
       <button class="modal-cancel" onclick="cancelNewPatient()">Cancel</button>
@@ -1061,13 +1071,13 @@ let editPatientId = null;
 function promptNewPatient() {
   patientModalMode = 'new';
   editPatientId = null;
-  newPatientScanTypes = new Set([currentScan]);
-  ['nt','target','echo'].forEach(s => {
-    document.getElementById('st-' + s).classList.toggle('selected', s === currentScan);
-  });
+  newPatientScanTypes = new Set();
+  ['nt','target','echo'].forEach(s => document.getElementById('st-' + s).classList.remove('selected'));
   document.getElementById('new-patient-name').value = '';
   document.getElementById('patient-modal-title').textContent = '👤 New Patient';
   document.getElementById('patient-modal-ok').textContent = 'Start Scan';
+  document.getElementById('scan-type-hint').textContent = 'Tap to select scan type(s)';
+  document.getElementById('scan-type-hint').style.color = '#999';
   document.getElementById('name-modal-bg').classList.add('show');
   setTimeout(() => document.getElementById('new-patient-name').focus(), 150);
 }
@@ -1084,22 +1094,43 @@ function openEditModal(id) {
   });
   document.getElementById('patient-modal-title').textContent = '✏️ Edit Patient';
   document.getElementById('patient-modal-ok').textContent = 'Save Changes';
+  const labels = { nt:'NT SCAN', target:'TARGET SCAN', echo:'ECHO' };
+  const hint = document.getElementById('scan-type-hint');
+  hint.textContent = '✔ ' + [...newPatientScanTypes].map(s => labels[s]).join(' + ') + ' selected';
+  hint.style.color = '#22a06b';
   document.getElementById('name-modal-bg').classList.add('show');
   setTimeout(() => document.getElementById('new-patient-name').focus(), 150);
 }
 
 function toggleScanType(type) {
   if (newPatientScanTypes.has(type)) {
-    if (newPatientScanTypes.size > 1) newPatientScanTypes.delete(type);
+    if (patientModalMode === 'edit' && newPatientScanTypes.size > 1) newPatientScanTypes.delete(type);
+    else if (patientModalMode === 'new') newPatientScanTypes.delete(type);
   } else {
     newPatientScanTypes.add(type);
   }
   ['nt','target','echo'].forEach(s => {
     document.getElementById('st-' + s).classList.toggle('selected', newPatientScanTypes.has(s));
   });
+  const hint = document.getElementById('scan-type-hint');
+  if (newPatientScanTypes.size === 0) {
+    hint.textContent = 'Tap to select scan type(s)'; hint.style.color = '#999';
+  } else {
+    const labels = { nt:'NT SCAN', target:'TARGET SCAN', echo:'ECHO' };
+    hint.textContent = '✔ ' + [...newPatientScanTypes].map(s => labels[s]).join(' + ') + ' selected';
+    hint.style.color = '#22a06b';
+  }
 }
 
 function confirmPatientModal() {
+  if (newPatientScanTypes.size === 0) {
+    const hint = document.getElementById('scan-type-hint');
+    hint.textContent = '⚠ Please select at least one scan type';
+    hint.style.color = '#e74c3c';
+    ['nt','target','echo'].forEach(s => document.getElementById('st-' + s).style.borderColor = '#e74c3c');
+    setTimeout(() => ['nt','target','echo'].forEach(s => document.getElementById('st-' + s).style.borderColor = ''), 1500);
+    return;
+  }
   const name = document.getElementById('new-patient-name').value.trim();
   document.getElementById('name-modal-bg').classList.remove('show');
   if (patientModalMode === 'edit' && editPatientId) {
