@@ -363,6 +363,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
       <div class="progress-pct" id="prog-pct">0%</div>
     </div>
+    <span id="fb-status" style="font-size:.6rem;font-weight:700;color:#aaa;white-space:nowrap">○ Offline</span>
     <button class="btn-mic" id="mic-btn" onclick="toggleVoice()" title="Voice commands">&#x1F3A4;</button>
   </div>
 
@@ -725,7 +726,82 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
 <script>
+// ══════════════════════════════════════════
+//  FIREBASE SYNC
+// ══════════════════════════════════════════
+const FB_CONFIG = {
+  apiKey: "AIzaSyCHIB7ndKeqbUSCzCrgMnZcGB-FWqH6Fj0",
+  authDomain: "scan-checklist.firebaseapp.com",
+  projectId: "scan-checklist",
+  storageBucket: "scan-checklist.firebasestorage.app",
+  messagingSenderId: "440132593268",
+  appId: "1:440132593268:web:3cf83d9b0595a32c39d321"
+};
+
+let db = null, fbDoc = null, fbSaveTimer = null, fbListening = false;
+
+function initFirebase() {
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    db = firebase.firestore();
+    fbDoc = db.collection('clinic').doc('main');
+    setFbStatus('connecting');
+    // Real-time listener — updates patient list when another device saves
+    fbDoc.onSnapshot(snap => {
+      setFbStatus('synced');
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (!data.patients) return;
+      // Merge: keep current session's unsaved panel state
+      saveCurrentToStore();
+      patients = data.patients;
+      storage_set('sc_patients', patients);
+      // Update currentIds only for tabs we're not actively on
+      if (data.currentIds) {
+        Object.keys(data.currentIds).forEach(s => {
+          if (s !== currentScan) currentIds[s] = data.currentIds[s];
+        });
+        storage_set('sc_currentIds', currentIds);
+      }
+      // Re-apply active panel if the patient data changed
+      const activeId = currentIds[currentScan];
+      if (activeId && patients[activeId]) _applyPatientPanel(activeId);
+      renderPatientHeader(); renderPMList(); updateStats();
+    }, err => { setFbStatus('offline'); });
+    fbListening = true;
+  } catch(e) { console.error('Firebase init error:', e); setFbStatus('offline'); }
+}
+
+function setFbStatus(status) {
+  const el = document.getElementById('fb-status');
+  if (!el) return;
+  const map = {
+    connecting: ['⟳ Connecting', '#f39c12'],
+    synced:     ['⚡ Synced',     '#22a06b'],
+    saving:     ['↑ Saving…',    '#1a5f9e'],
+    offline:    ['○ Offline',     '#aaa'],
+  };
+  const [text, color] = map[status] || map.offline;
+  el.textContent = text; el.style.color = color;
+}
+
+// Debounced save — avoids hammering Firestore on every tap
+function fbSave() {
+  if (!fbDoc) return;
+  clearTimeout(fbSaveTimer);
+  setFbStatus('saving');
+  fbSaveTimer = setTimeout(async () => {
+    try {
+      await fbDoc.set({ patients, currentIds });
+      setFbStatus('synced');
+    } catch(e) { console.error('Firebase save error:', e); setFbStatus('offline'); }
+  }, 800);
+}
+
 // ══════════════════════════════════════════
 //  STORAGE (localStorage with in-memory fallback)
 // ══════════════════════════════════════════
@@ -811,9 +887,8 @@ function _getScanData(p, scan) {
   return { checked: [], values: {}, toggles: {} };
 }
 
-function initPatients() {
-  patients = storage_get('sc_patients') || {};
-  // ── Migrate old single-scanType patients to new scans:{} format ──
+function _migrateAndApply(savedCurrentIds) {
+  // Migrate old single-scanType patients to new scans:{} format
   let needsSave = false;
   Object.values(patients).forEach(p => {
     if (!p.scans) {
@@ -824,14 +899,13 @@ function initPatients() {
       needsSave = true;
     }
   });
-  if (needsSave) savePatientsStore();
+  if (needsSave) storage_set('sc_patients', patients);
 
-  const saved = storage_get('sc_currentIds');
-  if (saved) {
-    currentIds = Object.assign({ nt: null, target: null, echo: null }, saved);
+  if (savedCurrentIds) {
+    currentIds = Object.assign({ nt: null, target: null, echo: null }, savedCurrentIds);
   } else {
     const oldId = storage_get('sc_currentId');
-    if (oldId && patients[oldId]) { _getScanTypes(patients[oldId]).forEach(s => { currentIds[s] = oldId; }); }
+    if (oldId && patients[oldId]) _getScanTypes(patients[oldId]).forEach(s => { currentIds[s] = oldId; });
   }
   // Clean up stale / mismatched IDs
   ['nt','target','echo'].forEach(s => {
@@ -846,6 +920,30 @@ function initPatients() {
     return;
   }
   renderPatientHeader();
+}
+
+function initPatients() {
+  // 1. Load from localStorage immediately (instant startup)
+  patients = storage_get('sc_patients') || {};
+  _migrateAndApply(storage_get('sc_currentIds'));
+
+  // 2. Initialize Firebase and let listener handle real-time updates
+  initFirebase();
+
+  // 3. Pull fresh data from Firebase once on startup (catches changes from other devices)
+  if (fbDoc) {
+    fbDoc.get().then(snap => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      if (!data.patients || Object.keys(data.patients).length === 0) return;
+      // Use Firebase data (more up to date across devices)
+      patients = data.patients;
+      storage_set('sc_patients', patients);
+      const fbCurrentIds = data.currentIds || {};
+      _migrateAndApply(fbCurrentIds);
+      storage_set('sc_currentIds', currentIds);
+    }).catch(e => console.error('Firebase initial load error:', e));
+  }
 }
 
 function _createPatient(name, scanTypes) {
@@ -941,8 +1039,8 @@ function saveCurrentToStore() {
   savePatientsStore();
 }
 
-function savePatientsStore() { storage_set('sc_patients', patients); }
-function saveCurrentIdsStore() { storage_set('sc_currentIds', currentIds); }
+function savePatientsStore() { storage_set('sc_patients', patients); fbSave(); }
+function saveCurrentIdsStore() { storage_set('sc_currentIds', currentIds); fbSave(); }
 
 function renderPatientHeader() {
   const id = currentIds[currentScan];
