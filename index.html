@@ -743,6 +743,7 @@ const FB_CONFIG = {
 };
 
 let db = null, fbDoc = null, fbSaveTimer = null, fbReady = false, isRemoteUpdate = false;
+let _waitingForDefaultPatient = false; // defer Patient 1 creation until Firebase responds
 
 function setFbStatus(status) {
   const el = document.getElementById('fb-status');
@@ -758,19 +759,33 @@ function setFbStatus(status) {
 }
 
 // Debounced save — only patients{} goes to Firebase; currentIds stays per-device
+let _fbSaveRetryTimer = null;
 function fbSave() {
   if (!fbReady || isRemoteUpdate) return;
   clearTimeout(fbSaveTimer);
+  clearTimeout(_fbSaveRetryTimer);
   setFbStatus('saving');
   fbSaveTimer = setTimeout(() => {
     fbDoc.set({ patients })
       .then(() => setFbStatus('synced'))
-      .catch(e => { console.error('fbSave error:', e); setFbStatus('offline'); });
+      .catch(e => {
+        console.error('fbSave error:', e);
+        setFbStatus('offline');
+        // Retry save after 8 seconds so data isn't silently lost
+        _fbSaveRetryTimer = setTimeout(() => { if (fbReady) fbSave(); }, 8000);
+      });
   }, 800);
 }
 
 function _applyRemotePatients(data) {
-  if (!data || !data.patients) return;
+  const hadPendingDefault = _waitingForDefaultPatient;
+  _waitingForDefaultPatient = false;
+
+  // Firebase has no data — nothing to load, UI will show "No Patient"
+  if (!data || !data.patients || Object.keys(data.patients).length === 0) {
+    return;
+  }
+
   isRemoteUpdate = true;
   patients = data.patients;
   storage_set('sc_patients', patients);
@@ -783,9 +798,19 @@ function _applyRemotePatients(data) {
       delete p.scanType; delete p.checked; delete p.values; delete p.toggles;
     }
   });
-  // Refresh active panel only if that patient still exists
+
+  // Fix stale currentIds — remove any pointers to patients that no longer exist in Firebase
+  ['nt','target','echo'].forEach(s => {
+    if (currentIds[s] && !patients[currentIds[s]]) currentIds[s] = null;
+  });
+  saveCurrentIdsStore(); // Persist corrected currentIds
+
+  // Refresh active panel only if a valid patient is already selected
   const activeId = currentIds[currentScan];
-  if (activeId && patients[activeId]) _applyPatientPanel(activeId);
+  if (activeId && patients[activeId]) {
+    updateVisibleTabs(_getScanTypes(patients[activeId]));
+    _applyPatientPanel(activeId);
+  }
   renderPatientHeader(); renderPMList(); updateStats();
   isRemoteUpdate = false;
 }
@@ -810,6 +835,7 @@ function initFirebase() {
       if (el && el.textContent.includes('Syncing')) {
         console.warn('Firebase: connection timeout, retrying…');
         setFbStatus('offline');
+        _waitingForDefaultPatient = false;
         // Retry once after 5 seconds
         setTimeout(initFirebase, 5000);
       }
@@ -950,17 +976,26 @@ function _migrateAndApply(savedCurrentIds) {
   if (currentIds.nt && patients[currentIds.nt]) {
     updateVisibleTabs(_getScanTypes(patients[currentIds.nt]));
     _applyPatientPanel(currentIds.nt);
+  } else if (Object.keys(patients).length > 0) {
+    // Local patients exist but no valid currentId — show "No Patient", let user select
+    _waitingForDefaultPatient = true;
+    renderPatientHeader();
+    return;
   } else {
-    _createPatient('Patient 1', ['nt']);
+    // No local patients at all — defer to Firebase, show "No Patient" in the meantime
+    _waitingForDefaultPatient = true;
+    renderPatientHeader();
     return;
   }
   renderPatientHeader();
 }
 
 function initPatients() {
-  // 1. Load from localStorage instantly so the app is usable right away
+  // 1. Load patients from localStorage but always start with no patient selected
   patients = storage_get('sc_patients') || {};
-  _migrateAndApply(storage_get('sc_currentIds'));
+  // Always reset currentIds on load — each session starts with "No Patient"
+  storage_set('sc_currentIds', { nt: null, target: null, echo: null });
+  _migrateAndApply(null);
 
   // 2. Connect to Firebase — onSnapshot fires immediately with latest cloud data
   //    and then fires again whenever any device makes a change
