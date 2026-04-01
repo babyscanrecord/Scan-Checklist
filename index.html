@@ -742,7 +742,7 @@ const FB_CONFIG = {
   appId: "1:440132593268:web:3cf83d9b0595a32c39d321"
 };
 
-let db = null, fbDoc = null, fbSaveTimer = null, fbListening = false;
+let db = null, fbDoc = null, fbSaveTimer = null, isRemoteUpdate = false;
 
 function initFirebase() {
   try {
@@ -750,29 +750,26 @@ function initFirebase() {
     db = firebase.firestore();
     fbDoc = db.collection('clinic').doc('main');
     setFbStatus('connecting');
-    // Real-time listener — updates patient list when another device saves
+
+    // onSnapshot fires immediately with current data AND on every remote change
     fbDoc.onSnapshot(snap => {
-      setFbStatus('synced');
-      if (!snap.exists()) return;
+      if (!snap.exists()) { setFbStatus('synced'); return; }
       const data = snap.data();
-      if (!data.patients) return;
-      // Merge: keep current session's unsaved panel state
-      saveCurrentToStore();
+      if (!data.patients) { setFbStatus('synced'); return; }
+
+      isRemoteUpdate = true;           // block fbSave() during remote apply
       patients = data.patients;
       storage_set('sc_patients', patients);
-      // Update currentIds only for tabs we're not actively on
-      if (data.currentIds) {
-        Object.keys(data.currentIds).forEach(s => {
-          if (s !== currentScan) currentIds[s] = data.currentIds[s];
-        });
-        storage_set('sc_currentIds', currentIds);
-      }
-      // Re-apply active panel if the patient data changed
+
+      // Re-apply current device's active patient with latest data from other device
       const activeId = currentIds[currentScan];
       if (activeId && patients[activeId]) _applyPatientPanel(activeId);
+
       renderPatientHeader(); renderPMList(); updateStats();
-    }, err => { setFbStatus('offline'); });
-    fbListening = true;
+      isRemoteUpdate = false;
+      setFbStatus('synced');
+    }, err => { console.error('Firebase error:', err); setFbStatus('offline'); });
+
   } catch(e) { console.error('Firebase init error:', e); setFbStatus('offline'); }
 }
 
@@ -789,17 +786,17 @@ function setFbStatus(status) {
   el.textContent = text; el.style.color = color;
 }
 
-// Debounced save — avoids hammering Firestore on every tap
+// Debounced save — only patients sync to Firebase; currentIds stays device-local
 function fbSave() {
-  if (!fbDoc) return;
+  if (!fbDoc || isRemoteUpdate) return;  // never save during a remote update
   clearTimeout(fbSaveTimer);
   setFbStatus('saving');
   fbSaveTimer = setTimeout(async () => {
     try {
-      await fbDoc.set({ patients, currentIds });
+      await fbDoc.set({ patients });    // currentIds intentionally excluded
       setFbStatus('synced');
     } catch(e) { console.error('Firebase save error:', e); setFbStatus('offline'); }
-  }, 800);
+  }, 600);
 }
 
 // ══════════════════════════════════════════
@@ -923,27 +920,13 @@ function _migrateAndApply(savedCurrentIds) {
 }
 
 function initPatients() {
-  // 1. Load from localStorage immediately (instant startup)
+  // 1. Load from localStorage instantly so the app is usable right away
   patients = storage_get('sc_patients') || {};
   _migrateAndApply(storage_get('sc_currentIds'));
 
-  // 2. Initialize Firebase and let listener handle real-time updates
+  // 2. Connect to Firebase — onSnapshot fires immediately with latest cloud data
+  //    and then fires again whenever any device makes a change
   initFirebase();
-
-  // 3. Pull fresh data from Firebase once on startup (catches changes from other devices)
-  if (fbDoc) {
-    fbDoc.get().then(snap => {
-      if (!snap.exists()) return;
-      const data = snap.data();
-      if (!data.patients || Object.keys(data.patients).length === 0) return;
-      // Use Firebase data (more up to date across devices)
-      patients = data.patients;
-      storage_set('sc_patients', patients);
-      const fbCurrentIds = data.currentIds || {};
-      _migrateAndApply(fbCurrentIds);
-      storage_set('sc_currentIds', currentIds);
-    }).catch(e => console.error('Firebase initial load error:', e));
-  }
 }
 
 function _createPatient(name, scanTypes) {
@@ -1040,7 +1023,7 @@ function saveCurrentToStore() {
 }
 
 function savePatientsStore() { storage_set('sc_patients', patients); fbSave(); }
-function saveCurrentIdsStore() { storage_set('sc_currentIds', currentIds); fbSave(); }
+function saveCurrentIdsStore() { storage_set('sc_currentIds', currentIds); } // device-local only
 
 function renderPatientHeader() {
   const id = currentIds[currentScan];
