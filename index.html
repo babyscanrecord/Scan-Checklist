@@ -792,16 +792,44 @@ function _applyRemotePatients(data) {
 
 function initFirebase() {
   try {
+    if (typeof firebase === 'undefined') {
+      console.error('Firebase SDK not loaded');
+      setFbStatus('offline');
+      return;
+    }
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     db = firebase.firestore();
     fbDoc = db.collection('clinic').doc('main');
     fbReady = true;
     setFbStatus('connecting');
+    console.log('Firebase: connecting…');
+
+    // Timeout fallback — if onSnapshot doesn't respond in 10s, show offline
+    const connectTimeout = setTimeout(() => {
+      const el = document.getElementById('fb-status');
+      if (el && el.textContent.includes('Syncing')) {
+        console.warn('Firebase: connection timeout, retrying…');
+        setFbStatus('offline');
+        // Retry once after 5 seconds
+        setTimeout(initFirebase, 5000);
+      }
+    }, 10000);
 
     // onSnapshot fires immediately with current cloud data, then on every change
     fbDoc.onSnapshot(
-      snap => { _applyRemotePatients(snap.exists() ? snap.data() : null); setFbStatus('synced'); },
-      err  => { console.error('Firebase listener error:', err); setFbStatus('offline'); }
+      snap => {
+        clearTimeout(connectTimeout);
+        console.log('Firebase: connected, data received');
+        _applyRemotePatients(snap.exists() ? snap.data() : null);
+        setFbStatus('synced');
+      },
+      err => {
+        clearTimeout(connectTimeout);
+        console.error('Firebase listener error:', err.code, err.message);
+        setFbStatus('offline');
+        // Retry after 8 seconds on error
+        setTimeout(initFirebase, 8000);
+      }
     );
   } catch(e) {
     console.error('Firebase init error:', e);
