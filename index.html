@@ -742,61 +742,71 @@ const FB_CONFIG = {
   appId: "1:440132593268:web:3cf83d9b0595a32c39d321"
 };
 
-let db = null, fbDoc = null, fbSaveTimer = null, isRemoteUpdate = false;
+let db = null, fbDoc = null, fbSaveTimer = null, fbReady = false, isRemoteUpdate = false;
+
+function setFbStatus(status) {
+  const el = document.getElementById('fb-status');
+  if (!el) return;
+  const map = {
+    connecting: ['⟳ Syncing',  '#f39c12'],
+    synced:     ['⚡ Synced',   '#22a06b'],
+    saving:     ['↑ Saving…',  '#1a5f9e'],
+    offline:    ['○ Offline',  '#aaa'],
+  };
+  const [text, color] = map[status] || map.offline;
+  el.textContent = text; el.style.color = color;
+}
+
+// Debounced save — only patients{} goes to Firebase; currentIds stays per-device
+function fbSave() {
+  if (!fbReady || isRemoteUpdate) return;
+  clearTimeout(fbSaveTimer);
+  setFbStatus('saving');
+  fbSaveTimer = setTimeout(() => {
+    fbDoc.set({ patients })
+      .then(() => setFbStatus('synced'))
+      .catch(e => { console.error('fbSave error:', e); setFbStatus('offline'); });
+  }, 800);
+}
+
+function _applyRemotePatients(data) {
+  if (!data || !data.patients) return;
+  isRemoteUpdate = true;
+  patients = data.patients;
+  storage_set('sc_patients', patients);
+  // Migrate if needed
+  Object.values(patients).forEach(p => {
+    if (!p.scans) {
+      const st = p.scanType || 'nt';
+      p.scanTypes = [st];
+      p.scans = { [st]: { checked: p.checked||[], values: p.values||{}, toggles: p.toggles||{} } };
+      delete p.scanType; delete p.checked; delete p.values; delete p.toggles;
+    }
+  });
+  // Refresh active panel only if that patient still exists
+  const activeId = currentIds[currentScan];
+  if (activeId && patients[activeId]) _applyPatientPanel(activeId);
+  renderPatientHeader(); renderPMList(); updateStats();
+  isRemoteUpdate = false;
+}
 
 function initFirebase() {
   try {
     if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
     db = firebase.firestore();
     fbDoc = db.collection('clinic').doc('main');
+    fbReady = true;
     setFbStatus('connecting');
 
-    // onSnapshot fires immediately with current data AND on every remote change
-    fbDoc.onSnapshot(snap => {
-      if (!snap.exists()) { setFbStatus('synced'); return; }
-      const data = snap.data();
-      if (!data.patients) { setFbStatus('synced'); return; }
-
-      isRemoteUpdate = true;           // block fbSave() during remote apply
-      patients = data.patients;
-      storage_set('sc_patients', patients);
-
-      // Re-apply current device's active patient with latest data from other device
-      const activeId = currentIds[currentScan];
-      if (activeId && patients[activeId]) _applyPatientPanel(activeId);
-
-      renderPatientHeader(); renderPMList(); updateStats();
-      isRemoteUpdate = false;
-      setFbStatus('synced');
-    }, err => { console.error('Firebase error:', err); setFbStatus('offline'); });
-
-  } catch(e) { console.error('Firebase init error:', e); setFbStatus('offline'); }
-}
-
-function setFbStatus(status) {
-  const el = document.getElementById('fb-status');
-  if (!el) return;
-  const map = {
-    connecting: ['⟳ Connecting', '#f39c12'],
-    synced:     ['⚡ Synced',     '#22a06b'],
-    saving:     ['↑ Saving…',    '#1a5f9e'],
-    offline:    ['○ Offline',     '#aaa'],
-  };
-  const [text, color] = map[status] || map.offline;
-  el.textContent = text; el.style.color = color;
-}
-
-// Debounced save — only patients sync to Firebase; currentIds stays device-local
-function fbSave() {
-  if (!fbDoc || isRemoteUpdate) return;  // never save during a remote update
-  clearTimeout(fbSaveTimer);
-  setFbStatus('saving');
-  fbSaveTimer = setTimeout(async () => {
-    try {
-      await fbDoc.set({ patients });    // currentIds intentionally excluded
-      setFbStatus('synced');
-    } catch(e) { console.error('Firebase save error:', e); setFbStatus('offline'); }
-  }, 600);
+    // onSnapshot fires immediately with current cloud data, then on every change
+    fbDoc.onSnapshot(
+      snap => { _applyRemotePatients(snap.exists() ? snap.data() : null); setFbStatus('synced'); },
+      err  => { console.error('Firebase listener error:', err); setFbStatus('offline'); }
+    );
+  } catch(e) {
+    console.error('Firebase init error:', e);
+    setFbStatus('offline');
+  }
 }
 
 // ══════════════════════════════════════════
