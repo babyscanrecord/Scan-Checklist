@@ -846,7 +846,7 @@ function initFirebase() {
       snap => {
         clearTimeout(connectTimeout);
         console.log('Firebase: connected, data received');
-        _applyRemotePatients(snap.exists() ? snap.data() : null);
+        _applyRemotePatients(snap.exists ? snap.data() : null);
         setFbStatus('synced');
       },
       err => {
