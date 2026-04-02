@@ -183,6 +183,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .item-input:focus { border-color: #1a5f9e; background: #fff; }
 .item-btn.checked .item-input { border-color: #a8dfc4; background: #f0fff8; color: #22a06b; }
 
+/* ── Summary strip ── */
+.summary-strip {
+  background: #eef4fb;
+  border-bottom: 1.5px solid #c7d9ee;
+  padding: 5px 10px;
+  display: none;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+.summary-strip.show { display: flex; }
+.summary-pill {
+  background: #1a5f9e;
+  color: #fff;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: .72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.summary-pill span { opacity: .75; font-weight: 400; }
+
 /* Category colours */
 .cat-header.brain  { background: #7b52c4; }
 .cat-header.heart  { background: #c0392b; }
@@ -366,6 +389,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <span id="fb-status" style="font-size:.6rem;font-weight:700;color:#aaa;white-space:nowrap">○ Offline</span>
     <button class="btn-mic" id="mic-btn" onclick="toggleVoice()" title="Voice commands">&#x1F3A4;</button>
   </div>
+
+  <!-- Summary strip: filled text-box values -->
+  <div class="summary-strip" id="summary-strip"></div>
 
   <!-- SUA Alert banner -->
   <div class="sua-alert" id="sua-alert">
@@ -921,6 +947,7 @@ function switchTab(scan, saveFirst) {
   else { _clearPanel(scan); }
   renderPatientHeader();
   updateStats();
+  updateSummaryStrip();
 }
 
 // ══════════════════════════════════════════
@@ -1056,6 +1083,7 @@ function _applyPatientPanel(id) {
     if (inp) inp.value = (sd.values && sd.values[label]) ? sd.values[label] : '';
   });
   refreshSuaAlert();
+  updateSummaryStrip();
 }
 
 function _clearPanel(scan) {
@@ -1069,6 +1097,7 @@ function _clearPanel(scan) {
   });
   panel.querySelectorAll('.item-input').forEach(inp => inp.value = '');
   document.getElementById('sua-alert').classList.remove('show');
+  updateSummaryStrip();
 }
 
 function saveCurrentToStore() {
@@ -1093,6 +1122,7 @@ function saveCurrentToStore() {
   });
   patients[id].scans[currentScan] = sd;
   savePatientsStore();
+  updateSummaryStrip();
 }
 
 function savePatientsStore() { storage_set('sc_patients', patients); fbSave(); }
@@ -1429,6 +1459,30 @@ function updateStats() {
 
   const banner = document.getElementById('done-' + currentScan);
   if (banner) banner.classList.toggle('show', done === total && total > 0);
+}
+
+function updateSummaryStrip() {
+  const strip = document.getElementById('summary-strip');
+  if (!strip) return;
+  const panel = document.getElementById('panel-' + currentScan);
+  if (!panel) { strip.classList.remove('show'); return; }
+
+  const pills = [];
+  panel.querySelectorAll('.item-input').forEach(inp => {
+    const val = inp.value.trim();
+    if (!val) return;
+    const label = inp.closest('.item-btn')?.querySelector('.item-label')?.textContent.trim() || '';
+    const unit = inp.placeholder && !inp.placeholder.includes('...') ? inp.placeholder : '';
+    pills.push(`<div class="summary-pill"><span>${label}: </span>${val}${unit ? ' <span>' + unit + '</span>' : ''}</div>`);
+  });
+
+  if (pills.length > 0) {
+    strip.innerHTML = pills.join('');
+    strip.classList.add('show');
+  } else {
+    strip.innerHTML = '';
+    strip.classList.remove('show');
+  }
 }
 
 // ══════════════════════════════════════════
