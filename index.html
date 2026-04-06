@@ -369,8 +369,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <div class="app-title">&#x1F4CB; Fetal Scan Checklist</div>
       <button class="btn-new-pat" onclick="promptNewPatient()" title="New Patient">&#x2795;</button>
     </div>
-    <div class="patient-pill" onclick="openPatientManager()" id="patient-pill">
-      &#x1F464; <span id="patient-name-display">No Patient</span>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <div class="patient-pill" onclick="openPatientManager()" id="patient-pill">
+        &#x1F464; <span id="patient-name-display">No Patient</span>
+      </div>
+      <span id="fb-status" style="font-size:.6rem;font-weight:700;color:#aaa;white-space:nowrap">○ Offline</span>
+      <button class="btn-mic" id="mic-btn" onclick="toggleVoice()" title="Voice commands">&#x1F3A4;</button>
     </div>
     <div class="tab-bar">
       <button class="tab active" id="tab-nt" onclick="switchTab('nt')">NT SCAN</button>
@@ -379,18 +383,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
   </div>
 
-  <!-- Stats bar -->
-  <div class="stats-bar">
-    <div class="stat"><div class="stat-num done" id="cnt-done">0</div><div class="stat-label">Done</div></div>
-    <div class="stat"><div class="stat-num pending-num" id="cnt-pending">0</div><div class="stat-label">Left</div></div>
-    <div class="stat"><div class="stat-num total" id="cnt-total">0</div><div class="stat-label">Total</div></div>
-    <div class="progress-wrap">
-      <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
-      <div class="progress-pct" id="prog-pct">0%</div>
-    </div>
-    <span id="fb-status" style="font-size:.6rem;font-weight:700;color:#aaa;white-space:nowrap">○ Offline</span>
-    <button class="btn-mic" id="mic-btn" onclick="toggleVoice()" title="Voice commands">&#x1F3A4;</button>
-  </div>
 
   <!-- Summary strip: filled text-box values -->
   <div class="summary-strip" id="summary-strip"></div>
@@ -476,8 +468,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
     <div class="items-grid" id="group-nt-spine">
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">SPINE</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">STOMACH</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">SMALL BOWEL</div></button>
     </div>
   </div>
 
@@ -488,10 +478,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <button class="btn-check-all" onclick="toggleAll('nt-abdomen')">&#x2714; All</button>
     </div>
     <div class="items-grid" id="group-nt-abdomen">
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">STOMACH</div></button>
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">BLADDER</div></button>
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">SMALL BOWEL</div></button>
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">DIAPHRAGM</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">KIDNEY</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">RENAL ARTERY</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">BLADDER</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">DIAPHRAGM</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">AC</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">CORD INSERTION</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">3VC</div><div class="label-toggle" onclick="switchLabel(event,this)"><span class="label-toggle-opt active">3VC</span><span class="label-toggle-opt">SUA</span></div></button>
@@ -1438,11 +1430,12 @@ function updateStats() {
   });
 
   const pct = total ? Math.round(done / total * 100) : 0;
-  document.getElementById('cnt-done').textContent = done;
-  document.getElementById('cnt-pending').textContent = total - done;
-  document.getElementById('cnt-total').textContent = total;
-  document.getElementById('prog-fill').style.width = pct + '%';
-  document.getElementById('prog-pct').textContent = pct + '%';
+  const _el = id => document.getElementById(id);
+  if (_el('cnt-done'))    _el('cnt-done').textContent    = done;
+  if (_el('cnt-pending')) _el('cnt-pending').textContent = total - done;
+  if (_el('cnt-total'))   _el('cnt-total').textContent   = total;
+  if (_el('prog-fill'))   _el('prog-fill').style.width   = pct + '%';
+  if (_el('prog-pct'))    _el('prog-pct').textContent    = pct + '%';
 
   const strip = document.getElementById('pending-strip');
   if (total - done > 0 && done > 0) {
