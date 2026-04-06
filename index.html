@@ -166,6 +166,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .item-btn.sua-selected .item-label { color: #e74c3c; font-weight: 800; }
 .item-btn.sua-selected .check-icon { border-color: #e74c3c; }
 .item-btn.sua-selected.checked .check-icon { background: #e74c3c; border-color: #e74c3c; }
+.label-toggle-opt.active.abnormal-active { background: #e74c3c; }
+.item-btn.abnormal-active { background: #fff5f5; }
+.item-btn.abnormal-active .item-label { color: #e74c3c; font-weight: 800; }
+.item-btn.abnormal-active .check-icon { border-color: #e74c3c; }
+.item-btn.abnormal-active.checked .check-icon { background: #e74c3c; border-color: #e74c3c; }
 
 /* ── SUA alert banner (sticky top) ── */
 .sua-alert {
@@ -393,6 +398,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <span class="sua-alert-text">SUA (Single Umbilical Artery) selected — document carefully</span>
   </div>
 
+  <!-- ARSA Alert banner -->
+  <div class="sua-alert" id="arsa-alert">
+    <span class="sua-alert-icon">&#x26A0;&#xFE0F;</span>
+    <span class="sua-alert-text">ARSA (Aberrant Right Subclavian Artery) present — document carefully</span>
+  </div>
+
+  <!-- TR Alert banner -->
+  <div class="sua-alert" id="tr-alert">
+    <span class="sua-alert-icon">&#x26A0;&#xFE0F;</span>
+    <span class="sua-alert-text">TR (Tricuspid Regurgitation) present — document carefully</span>
+  </div>
+
 </div><!-- end sticky-top -->
 
 <!-- Pending strip (scrolls with page) -->
@@ -455,7 +472,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">Situs</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">4CH</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">ARCH</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">TR</div></button>
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">TR</div><div class="label-toggle" data-abnormal="Present" data-alert-id="tr-alert" onclick="switchLabel(event,this)"><span class="label-toggle-opt active">Absent</span><span class="label-toggle-opt">Present</span></div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">HEART RATE</div><input class="item-input" type="number" placeholder="bpm" onclick="event.stopPropagation()" oninput="saveCurrentToStore()"></button>
     </div>
   </div>
@@ -564,7 +581,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">RVOT</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">ARCH</div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">PAS</div></button>
-      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">ARSA</div></button>
+      <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">ARSA</div><div class="label-toggle" data-abnormal="Yes" data-alert-id="arsa-alert" onclick="switchLabel(event,this)"><span class="label-toggle-opt active">No</span><span class="label-toggle-opt">Yes</span></div></button>
       <button class="item-btn" onclick="toggle(this)"><div class="check-icon">&#x2714;</div><div class="item-label">LUNGS</div></button>
     </div>
   </div>
@@ -1049,11 +1066,11 @@ function _applyPatientPanel(id) {
   const panel = document.getElementById('panel-' + currentScan);
   if (!panel) return;
   const sd = _getScanData(p, currentScan);
-  panel.querySelectorAll('.item-btn').forEach(b => { b.classList.remove('checked', 'sua-selected'); });
+  panel.querySelectorAll('.item-btn').forEach(b => { b.classList.remove('checked', 'sua-selected', 'abnormal-active'); });
   panel.querySelectorAll('.label-toggle').forEach(tog => {
     const opts = tog.querySelectorAll('.label-toggle-opt');
-    opts.forEach((o, i) => { o.classList.toggle('active', i === 0); o.classList.remove('sua'); });
-    tog.closest('.item-btn').querySelector('.item-label').textContent = opts[0].textContent;
+    opts.forEach((o, i) => { o.classList.toggle('active', i === 0); o.classList.remove('sua', 'abnormal-active'); });
+    if (!tog.dataset.abnormal) tog.closest('.item-btn').querySelector('.item-label').textContent = opts[0].textContent;
   });
   panel.querySelectorAll('.item-input').forEach(inp => inp.value = '');
   panel.querySelectorAll('.item-btn').forEach(b => {
@@ -1062,13 +1079,15 @@ function _applyPatientPanel(id) {
       const opts = tog.querySelectorAll('.label-toggle-opt');
       const key = opts[0].textContent;
       const saved = sd.toggles[key];
+      const abnormalVal = tog.dataset.abnormal;
       if (saved) {
         opts.forEach(o => {
           o.classList.toggle('active', o.textContent === saved);
-          o.classList.toggle('sua', o.textContent === saved && saved === 'SUA');
+          if (abnormalVal) o.classList.toggle('abnormal-active', o.textContent === abnormalVal && saved === abnormalVal);
+          else o.classList.toggle('sua', o.textContent === saved && saved === 'SUA');
         });
-        b.querySelector('.item-label').textContent = saved;
-        b.classList.toggle('sua-selected', saved === 'SUA');
+        if (abnormalVal) b.classList.toggle('abnormal-active', saved === abnormalVal);
+        else { b.querySelector('.item-label').textContent = saved; b.classList.toggle('sua-selected', saved === 'SUA'); }
       }
     }
     const label = b.querySelector('.item-label').textContent.trim();
@@ -1083,14 +1102,14 @@ function _applyPatientPanel(id) {
 function _clearPanel(scan) {
   const panel = document.getElementById('panel-' + scan);
   if (!panel) return;
-  panel.querySelectorAll('.item-btn').forEach(b => { b.classList.remove('checked', 'sua-selected'); });
+  panel.querySelectorAll('.item-btn').forEach(b => { b.classList.remove('checked', 'sua-selected', 'abnormal-active'); });
   panel.querySelectorAll('.label-toggle').forEach(tog => {
     const opts = tog.querySelectorAll('.label-toggle-opt');
-    opts.forEach((o, i) => { o.classList.toggle('active', i === 0); o.classList.remove('sua'); });
-    tog.closest('.item-btn').querySelector('.item-label').textContent = opts[0].textContent;
+    opts.forEach((o, i) => { o.classList.toggle('active', i === 0); o.classList.remove('sua', 'abnormal-active'); });
+    if (!tog.dataset.abnormal) tog.closest('.item-btn').querySelector('.item-label').textContent = opts[0].textContent;
   });
   panel.querySelectorAll('.item-input').forEach(inp => inp.value = '');
-  document.getElementById('sua-alert').classList.remove('show');
+  document.querySelectorAll('.sua-alert').forEach(el => el.classList.remove('show'));
   updateSummaryStrip();
 }
 
@@ -1383,21 +1402,36 @@ function switchLabel(e, toggleEl) {
   const activeIdx = [...opts].findIndex(o => o.classList.contains('active'));
   const nextIdx = (activeIdx + 1) % opts.length;
   opts.forEach((o, i) => o.classList.toggle('active', i === nextIdx));
-  // Update visible label
   const newLabel = opts[nextIdx].textContent;
-  toggleEl.closest('.item-btn').querySelector('.item-label').textContent = newLabel;
-  // Red highlight when SUA is active
-  const isSua = newLabel === 'SUA';
-  opts[nextIdx].classList.toggle('sua', isSua);
-  toggleEl.closest('.item-btn').classList.toggle('sua-selected', isSua);
+  const btn = toggleEl.closest('.item-btn');
+  const abnormalVal = toggleEl.dataset.abnormal;
+  if (abnormalVal) {
+    const isAbnormal = newLabel === abnormalVal;
+    opts.forEach(o => o.classList.toggle('abnormal-active', o.textContent === abnormalVal && isAbnormal));
+    btn.classList.toggle('abnormal-active', isAbnormal);
+  } else {
+    btn.querySelector('.item-label').textContent = newLabel;
+    const isSua = newLabel === 'SUA';
+    opts[nextIdx].classList.toggle('sua', isSua);
+    btn.classList.toggle('sua-selected', isSua);
+  }
   saveCurrentToStore();
   refreshSuaAlert();
 }
 
 function refreshSuaAlert() {
-  // Show red banner if any label-toggle is currently showing SUA
   const hasSua = [...document.querySelectorAll('.item-btn.sua-selected')].length > 0;
   document.getElementById('sua-alert').classList.toggle('show', hasSua);
+  // Generic: each data-alert-id banner shown when its toggle is abnormal-active
+  const seen = new Set();
+  document.querySelectorAll('.label-toggle[data-alert-id]').forEach(tog => {
+    const alertId = tog.dataset.alertId;
+    if (seen.has(alertId)) return;
+    seen.add(alertId);
+    const isAbnormal = tog.closest('.item-btn').classList.contains('abnormal-active');
+    const el = document.getElementById(alertId);
+    if (el) el.classList.toggle('show', isAbnormal);
+  });
 }
 
 function toggleAll(groupId) {
